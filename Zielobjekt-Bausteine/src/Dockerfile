@@ -3,6 +3,11 @@
 # This file defines the steps to build the Docker container image for the
 # OSCAL generation pipeline.
 #
+# IMPORTANT: The build context for this Dockerfile is expected to be the
+# application root directory ('Zielobjekt-Bausteine/src'), not the repository root.
+# The 'deploy.sh' script handles changing to the correct directory before
+# running 'docker build'.
+#
 
 # --- Base Image ---
 # Use an official Python runtime as a parent image.
@@ -31,6 +36,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # --- Application Code ---
 # Copy the application source code into the container.
+# These paths are relative to the build context, which is the application root.
 COPY ./src ./src
 COPY ./assets ./assets
 

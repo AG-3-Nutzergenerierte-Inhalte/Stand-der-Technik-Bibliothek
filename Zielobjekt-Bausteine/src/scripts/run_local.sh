@@ -14,11 +14,16 @@
 # Set the script to exit immediately if any command fails.
 set -e
 
+# Change to the application's root directory (the parent of the scripts directory)
+# This makes the script runnable from any location.
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+cd "$SCRIPT_DIR/.."
+
 echo "--- Starting Local Pipeline Execution ---"
+echo "Working Directory: $(pwd)"
 
 # --- Environment Setup ---
 # Set environment variables for local run.
-# In a real scenario, you might use a .env file and `source` it here.
 export GCP_PROJECT_ID="local-dev-project"
 export BUCKET_NAME="local-dev-bucket"
 export AI_ENDPOINT_ID="local-dev-endpoint"
@@ -34,7 +39,7 @@ echo "TEST: $TEST"
 echo "---------------------------------------"
 
 # --- Execution ---
-# Run the main Python application.
+# Run the main Python application from the application root.
 python3 src/main.py
 
 echo "--- Local Pipeline Execution Finished ---"
