@@ -1,0 +1,34 @@
+# .dockerignore
+#
+# This file specifies files and directories to be excluded from the Docker
+# build context. Excluding unnecessary files helps to create a smaller, faster,
+# and more secure container image.
+#
+
+# --- Version Control ---
+.git
+.gitignore
+
+# --- Python ---
+# Exclude Python bytecode files and caches.
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# --- Local Development ---
+# Exclude files and directories related to local development environments.
+.venv/
+venv/
+env/
+*.env
+
+# --- Documentation ---
+# Exclude project documentation that is not needed in the container.
+Dokumentation/
+Zielobjekt-Bausteine/
+README.md
+
+# --- Tooling & IDE ---
+.idea/
+.vscode/
