@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OSCAL SSP Generator</title>
-    <!-- Lädt Tailwind CSS zum Stylen -->
+    <title>OSCAL SSP Generator (mit Inhaltsvalidierung)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         /* Verwendet ein sauberes, modernes Font-Pairing */
@@ -19,6 +18,16 @@
             width: 40px;
             height: 40px;
             animation: spin 1s linear infinite;
+        }
+        /* Kleinerer Spinner für Buttons */
+        .btn-spinner {
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top: 2px solid #fff;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px; /* Abstand zum Text */
         }
         @keyframes spin {
             0% { transform: rotate(0deg); }
@@ -61,22 +70,19 @@
             background-color: #dc2626; /* red-600 */
         }
     </style>
-    <!-- Lädt Inter Font von Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body class="bg-gray-100 min-h-screen p-4 md:p-8">
 
     <div class="container mx-auto max-w-3xl bg-white rounded-lg shadow-xl p-6 md:p-10 space-y-8">
         
-        <!-- Header -->
         <div>
             <h1 class="text-3xl font-bold text-gray-800">OSCAL SSP Generator</h1>
             <p class="text-gray-600 mt-2">Hallo Christoph! Erstelle hier ein einfaches OSCAL System Security Plan (SSP) JSON, indem du Daten eingibst und Ressourcen auswählst.</p>
         </div>
 
-        <!-- Lade- und Fehlerstatus -->
         <div id="loading-container" class="flex flex-col items-center justify-center p-6 bg-gray-50 rounded-lg hidden">
             <div class="loader"></div>
             <p class="text-gray-600 mt-3">Lade Profile & Komponenten von GitHub...</p>
@@ -84,10 +90,8 @@
         
         <div id="error-message" class="hidden p-4 bg-red-100 text-red-700 rounded-lg"></div>
 
-        <!-- Hauptformular -->
         <div id="form-container" class="space-y-6">
             
-            <!-- 1. Systeminformationen -->
             <fieldset class="space-y-4 border border-gray-300 p-4 rounded-lg">
                 <legend class="text-lg font-semibold text-gray-700 px-2">1. Systeminformationen (Erforderlich)</legend>
                 
@@ -107,41 +111,53 @@
                 </div>
             </fieldset>
 
-            <!-- 2. Profile auswählen -->
             <fieldset id="profile-fieldset" class="space-y-2 border border-gray-300 p-4 rounded-lg">
                 <legend class="text-lg font-semibold text-gray-700 px-2">2. Profile auswählen (Min. 1)</legend>
                 <p class="text-sm text-gray-500 pb-2">Wähle die Profile aus, die importiert werden sollen. Das erste ausgewählte Profil wird als primäres `import-profile` verwendet.</p>
                 <div id="profile-list" class="list-container space-y-2">
-                    <!-- Profil-Checkboxen werden hier per JS eingefügt -->
                     <p class="text-gray-400">Lade Profile...</p>
                 </div>
             </fieldset>
 
-            <!-- 3. Komponenten hinzufügen -->
             <fieldset id="component-fieldset" class="space-y-4 border border-gray-300 p-4 rounded-lg hidden">
                 <legend class="text-lg font-semibold text-gray-700 px-2">3. Komponenten hinzufügen (Min. 1)</legend>
-                <p class="text-sm text-gray-500 pb-2">Wähle Komponenten aus der Liste aus und füge sie hinzu. Jede Komponente kann mehrfach hinzugefügt werden. Laut Schema ist min. 1 Komponente erforderlich.</p>
+                <p class="text-sm text-gray-500 pb-2">
+                    Wähle eine Komponente. Es wird live validiert, ob *alle* Controls dieser Komponente auch in den in Schritt 2 ausgewählten Profilen gefordert werden.
+                </p>
                 
-                <div class="flex items-center space-x-2">
-                    <select id="component-dropdown" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-                        <!-- Komponenten-Optionen werden hier per JS eingefügt -->
+                <div>
+                    <label for="component-dropdown-nutzergen" class="block text-sm font-medium text-gray-700 mb-1">Quelle 1: Nutzergenerierte Komponenten</label>
+                    <select id="component-dropdown-nutzergen" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
                         <option value="">Lade Komponenten...</option>
                     </select>
-                    <button type="button" id="add-component-btn" class="px-4 py-2 bg-blue-600 text-white rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 whitespace-nowrap">
-                        Hinzufügen
+                </div>
+                
+                <div>
+                    <label for="component-dropdown-gplus" class="block text-sm font-medium text-gray-700 mb-1">Quelle 2: G++ Komponenten</label>
+                    <select id="component-dropdown-gplus" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">Lade Komponenten...</option>
+                    </select>
+                </div>
+                
+                <div class="flex flex-col sm:flex-row items-center sm:space-x-2 space-y-2 sm:space-y-0 border-t border-gray-200 pt-4 mt-4">
+                    <input type="text" id="component-custom-name" class="w-full sm:flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" placeholder="Eigener Name (z.B. Webserver-Prod)">
+                    
+                    <button type="button" id="add-component-btn" class="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 whitespace-nowrap flex items-center justify-center">
+                        <span id="add-btn-spinner" class="btn-spinner hidden"></span>
+                        <span id="add-btn-text">Hinzufügen</span>
                     </button>
                 </div>
                 
+                <div id="component-error-message" class="text-red-600 text-sm mt-2 hidden"></div>
+                
                 <div id="added-component-list-container" class="border-t border-gray-200 pt-4 mt-4">
-                    <h4 class="text-sm font-medium text-gray-700 mb-2">Hinzugefügte Komponenten:</h4>
+                    <h4 class="text-sm font-medium text-gray-700 mb-2">Hinzugefügte Komponenten-Instanzen:</h4>
                     <ul id="added-component-list" class="space-y-1">
-                        <!-- Hinzugefügte Komponenten (<li>) werden hier per JS eingefügt -->
                         <li id="no-components-placeholder" class="text-gray-500 text-sm">Noch keine Komponenten hinzugefügt.</li>
                     </ul>
                 </div>
             </fieldset>
 
-            <!-- 4. Aktion -->
             <div>
                 <button id="generate-btn" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-lg font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors">
                     OSCAL SSP (JSON) generieren & herunterladen
@@ -151,14 +167,23 @@
     </div>
 
     <script>
-        // URLs zur GitHub API für die Verzeichnisinhalte
-        const PROFILE_API_URL = 'https://api.github.com/repos/AG-3-Nutzergenerierte-Inhalte/Stand-der-Technik-Bibliothek/contents/Zielobjekt-Bausteine/profiles';
-        const COMPONENT_API_URL = 'https://api.github.com/repos/AG-3-Nutzergenerierte-Inhalte/Stand-der-Technik-Bibliothek/contents/Zielobjekt-Bausteine/components/DE';
+        // *** KORREKTUR: Alle Pfade sind jetzt aktuell ***
+        const PROFILE_API_URL = 'https://api.github.com/repos/AG-3-Nutzergenerierte-Inhalte/Stand-der-Technik-Bibliothek/contents/Kompendien/Grundschutz%2B%2B-Kompendium/profile';
+        // *** DIESE ZEILE WURDE KORRIGIERT ***
+        const COMPONENT_API_URL_NUTZERGEN = 'https://api.github.com/repos/AG-3-Nutzergenerierte-Inhalte/Stand-der-Technik-Bibliothek/contents/Nutzergenerierte-Inhalte/komponenten/DE';
+        const COMPONENT_API_URL_GPLUS = 'https://api.github.com/repos/AG-3-Nutzergenerierte-Inhalte/Stand-der-Technik-Bibliothek/contents/Kompendien/Grundschutz%2B%2B-Kompendium/komponenten';
+
 
         // DOM-Elemente
-        let profileListEl, componentDropdownEl, addComponentBtn, addedComponentListEl, noComponentsPlaceholder, generateBtn, loadingEl, errorEl, formEl;
+        let profileListEl, componentDropdownNutzergenEl, componentDropdownGplusEl, addComponentBtn, addedComponentListEl, noComponentsPlaceholder, generateBtn, loadingEl, errorEl, formEl;
         let systemNameEl, systemDescriptionEl, sspVersionEl;
-        let componentFieldsetEl; // Hinzugefügt
+        let componentFieldsetEl, componentCustomNameEl;
+        let addBtnSpinner, addBtnText;
+        let componentErrorEl;
+
+        // Caches für abgerufene JSON-Inhalte
+        let componentContentCache = new Map();
+        let profileContentCache = new Map();
 
         /**
          * Initialisiert die Anwendung nach dem Laden des DOM.
@@ -166,8 +191,12 @@
         document.addEventListener('DOMContentLoaded', () => {
             // Element-Referenzen holen
             profileListEl = document.getElementById('profile-list');
-            componentFieldsetEl = document.getElementById('component-fieldset'); // Hinzugefügt
-            componentDropdownEl = document.getElementById('component-dropdown');
+            componentFieldsetEl = document.getElementById('component-fieldset');
+            
+            componentDropdownNutzergenEl = document.getElementById('component-dropdown-nutzergen');
+            componentDropdownGplusEl = document.getElementById('component-dropdown-gplus');
+
+            componentCustomNameEl = document.getElementById('component-custom-name');
             addComponentBtn = document.getElementById('add-component-btn');
             addedComponentListEl = document.getElementById('added-component-list');
             noComponentsPlaceholder = document.getElementById('no-components-placeholder');
@@ -180,19 +209,34 @@
             systemDescriptionEl = document.getElementById('system-description');
             sspVersionEl = document.getElementById('ssp-version');
 
+            addBtnSpinner = document.getElementById('add-btn-spinner');
+            addBtnText = document.getElementById('add-btn-text');
+            
+            componentErrorEl = document.getElementById('component-error-message');
+
             // Event Listener
             generateBtn.addEventListener('click', generateSSP);
-            profileListEl.addEventListener('change', handleProfileChange); // Hinzugefügt
-            addComponentBtn.addEventListener('click', addComponentToList); // Hinzugefügt
-            addedComponentListEl.addEventListener('click', handleAddedComponentListClick); // Hinzugefügt
+            profileListEl.addEventListener('change', handleProfileChange);
+            addComponentBtn.addEventListener('click', addComponentToList);
+            addedComponentListEl.addEventListener('click', handleAddedComponentListClick);
+
+            componentDropdownNutzergenEl.addEventListener('change', () => {
+                if (componentDropdownNutzergenEl.value) {
+                    componentDropdownGplusEl.selectedIndex = 0; // Setzt G++ zurück
+                }
+            });
+            componentDropdownGplusEl.addEventListener('change', () => {
+                if (componentDropdownGplusEl.value) {
+                    componentDropdownNutzergenEl.selectedIndex = 0; // Setzt Nutzergen. zurück
+                }
+            });
 
             // Startet das Laden der Daten
             fetchGitHubData();
         });
 
         /**
-         * Zeigt eine Fehlermeldung im UI an.
-         * @param {string} message - Die anzuzeigende Fehlermeldung.
+         * Zeigt eine globale Fehlermeldung im UI an.
          */
         function showError(message) {
             errorEl.textContent = message;
@@ -200,11 +244,50 @@
         }
 
         /**
-         * Löscht die aktuelle Fehlermeldung.
+         * Löscht die globale Fehlermeldung.
          */
         function clearError() {
             errorEl.textContent = '';
             errorEl.classList.add('hidden');
+        }
+
+        /**
+         * Zeigt eine Fehlermeldung unter dem 'Hinzufügen'-Button an.
+         */
+        function showComponentError(message) {
+            componentErrorEl.textContent = message;
+            componentErrorEl.classList.remove('hidden');
+        }
+
+        /**
+         * Löscht die Fehlermeldung unter dem 'Hinzufügen'-Button.
+         */
+        function clearComponentError() {
+            componentErrorEl.textContent = '';
+            componentErrorEl.classList.add('hidden');
+        }
+
+        /**
+         * Ruft JSON-Inhalte ab und speichert sie im Cache.
+         */
+        async function getFileContent(url, cache) {
+            if (cache.has(url)) {
+                return cache.get(url); // Gibt gecachten Inhalt zurück
+            }
+            
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    // Löst den Fehler aus, der in fetchGitHubData gefangen wird
+                    throw new Error(`Netzwerkantwort nicht OK für: ${url}`);
+                }
+                const json = await response.json();
+                cache.set(url, json); // Speichert im Cache
+                return json;
+            } catch (error) {
+                console.error("Fehler beim Abrufen von Datei-Inhalt:", error);
+                throw error; // Wirft den Fehler weiter, damit er von der aufrufenden Funktion behandelt wird
+            }
         }
 
         /**
@@ -216,29 +299,34 @@
             clearError();
 
             try {
-                // Paralleles Fetchen beider Endpunkte
-                const [profileResponse, componentResponse] = await Promise.all([
+                // Führt alle 3 Anfragen parallel aus
+                const [profileResponse, componentResponseNutzergen, componentResponseGplus] = await Promise.all([
                     fetch(PROFILE_API_URL),
-                    fetch(COMPONENT_API_URL)
+                    fetch(COMPONENT_API_URL_NUTZERGEN),
+                    fetch(COMPONENT_API_URL_GPLUS)
                 ]);
 
-                if (!profileResponse.ok || !componentResponse.ok) {
-                    throw new Error('Netzwerkantwort war nicht OK.');
+                // Prüft, ob *alle* Anfragen erfolgreich waren
+                if (!profileResponse.ok || !componentResponseNutzergen.ok || !componentResponseGplus.ok) {
+                    // Wenn eine fehlschlägt, wird der Ladevorgang abgebrochen
+                    throw new Error('Netzwerkantwort für Profile oder Komponenten war nicht OK.');
                 }
 
                 const profiles = await profileResponse.json();
-                const components = await componentResponse.json();
+                const componentsNutzergen = await componentResponseNutzergen.json();
+                const componentsGplus = await componentResponseGplus.json();
 
-                // Rendert die Checkbox-Listen
                 renderCheckboxes(profiles, profileListEl, 'profile');
-                // Rendert die Dropdown-Optionen
-                renderComponentDropdown(components, componentDropdownEl);
+                
+                // Populiere beide Dropdowns
+                renderComponentDropdown(componentsNutzergen, componentDropdownNutzergenEl, "Nutzergenerierte Komponente auswählen...");
+                renderComponentDropdown(componentsGplus, componentDropdownGplusEl, "G++ Komponente auswählen...");
 
             } catch (error) {
                 console.error('Fehler beim Laden der GitHub-Daten:', error);
+                // Zeigt dem Benutzer den Fehler an (z.B. "Netzwerkantwort nicht OK...")
                 showError(`Fehler beim Laden der Daten: ${error.message}. Bitte lade die Seite neu.`);
             } finally {
-                // Versteckt den Lade-Spinner und zeigt das Formular an
                 loadingEl.classList.add('hidden');
                 formEl.classList.remove('hidden');
             }
@@ -246,14 +334,10 @@
 
         /**
          * Rendert eine Liste von Checkboxen in einem Container-Element.
-         * @param {Array} items - Array von Objekten aus der GitHub API.
-         * @param {HTMLElement} container - Das DOM-Element, in das die Checkboxen eingefügt werden.
-         * @param {string} name - Der 'name'-Attributwert für die Checkboxen.
          */
         function renderCheckboxes(items, container, name) {
-            container.innerHTML = ''; // Leert den Container
+            container.innerHTML = ''; 
             
-            // Filtert nur JSON-Dateien
             const files = items.filter(item => item.type === 'file' && item.name.endsWith('.json'));
 
             if (files.length === 0) {
@@ -271,7 +355,8 @@
                 input.type = 'checkbox';
                 input.id = id;
                 input.name = name;
-                input.value = file.download_url; // Speichert die download_url als Wert
+                input.value = file.download_url;
+                input.dataset.filename = file.name;
                 input.className = 'h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500';
 
                 const label = document.createElement('label');
@@ -287,11 +372,9 @@
 
         /**
          * Rendert die Komponenten-Optionen in einem Dropdown-Menü.
-         * @param {Array} items - Array von Objekten aus der GitHub API.
-         * @param {HTMLElement} container - Das <select>-Element.
          */
-        function renderComponentDropdown(items, container) {
-            container.innerHTML = ''; // Leert den Container
+        function renderComponentDropdown(items, container, placeholderText = "Komponenten-Quelle auswählen...") {
+            container.innerHTML = ''; 
             
             const files = items.filter(item => item.type === 'file' && item.name.endsWith('.json'));
 
@@ -300,26 +383,27 @@
                 return;
             }
 
-            // Fügt eine Standard-Platzhalter-Option hinzu
             const placeholder = document.createElement('option');
             placeholder.value = "";
-            placeholder.textContent = "Komponente auswählen...";
+            placeholder.textContent = placeholderText;
             placeholder.disabled = true;
             placeholder.selected = true;
             container.appendChild(placeholder);
 
             files.forEach((file) => {
                 const option = document.createElement('option');
-                option.value = file.download_url; // Speichert die download_url als Wert
-                option.textContent = file.name; // Zeigt den Dateinamen an
+                option.value = file.download_url;
+                option.textContent = file.name;
                 container.appendChild(option);
             });
         }
 
         /**
-         * Zeigt die Komponenten-Sektion an/blendet sie aus, basierend auf der Profilauswahl.
+         * Zeigt die Komponenten-Sektion an/blendet sie aus.
          */
         function handleProfileChange() {
+            clearError(); 
+            clearComponentError();
             const selectedProfiles = document.querySelectorAll('input[name="profile"]:checked').length;
             if (selectedProfiles > 0) {
                 componentFieldsetEl.classList.remove('hidden');
@@ -328,51 +412,164 @@
             }
         }
 
+        // -----------------------------------------------------------------
+        // VALIDIERUNGS-LOGIK (TIEFENANALYSE)
+        // (Unverändert)
+        // -----------------------------------------------------------------
+        function extractProfileControls(profileJsons) {
+            const controlIdSet = new Set();
+            for (const profileJson of profileJsons) {
+                const imports = profileJson?.profile?.imports || [];
+                for (const imp of imports) {
+                    const includeControls = imp["include-controls"] || [];
+                    for (const include of includeControls) {
+                        const withIds = include["with-ids"] || [];
+                        for (const id of withIds) {
+                            controlIdSet.add(id);
+                        }
+                    }
+                }
+            }
+            return controlIdSet;
+        }
+        function extractComponentControls(componentJson) {
+            const controlIdSet = new Set();
+            const def = componentJson?.["component-definition"] || componentJson;
+            const componentsList = def.components || [];
+
+            for (const component of componentsList) {
+                const controlImpls = component["control-implementations"] || [];
+                for (const cImpl of controlImpls) {
+                    const implReqs = cImpl["implemented-requirements"] || [];
+                    for (const req of implReqs) {
+                         if (req["control-id"]) {
+                            controlIdSet.add(req["control-id"]);
+                        }
+                    }
+                }
+            }
+            return controlIdSet;
+        }
+
+
         /**
-         * Fügt die ausgewählte Komponente aus dem Dropdown zur Liste "Hinzugefügte Komponenten" hinzu.
+         * Fügt Komponente hinzu, *nach* asynchroner Inhalts-Validierung.
          */
-        function addComponentToList() {
-            const selectedOption = componentDropdownEl.options[componentDropdownEl.selectedIndex];
-            if (!selectedOption || !selectedOption.value) {
-                // Verhindert das Hinzufügen der Platzhalter-Option
+        async function addComponentToList() {
+            clearError(); // Löscht globalen Fehler
+            clearComponentError(); // Löscht lokalen Fehler
+            
+            const selectedOptionNutzergen = componentDropdownNutzergenEl.options[componentDropdownNutzergenEl.selectedIndex];
+            const selectedOptionGplus = componentDropdownGplusEl.options[componentDropdownGplusEl.selectedIndex];
+
+            let selectedOption = null;
+            let selectedDropdownEl = null;
+
+            if (selectedOptionNutzergen && selectedOptionNutzergen.value) {
+                selectedOption = selectedOptionNutzergen;
+                selectedDropdownEl = componentDropdownNutzergenEl;
+            } else if (selectedOptionGplus && selectedOptionGplus.value) {
+                selectedOption = selectedOptionGplus;
+                selectedDropdownEl = componentDropdownGplusEl;
+            }
+            
+            const customName = componentCustomNameEl.value.trim();
+
+            // --- 1. Grundlegende Formular-Validierung ---
+            if (!selectedOption) {
+                showComponentError("Bitte wählen Sie eine Komponente aus (Quelle 1 oder 2).");
+                componentDropdownNutzergenEl.focus(); // Fokus auf die erste
                 return; 
             }
-
-            const downloadUrl = selectedOption.value;
-            const fileName = selectedOption.textContent;
-
-            // Platzhalter entfernen, falls vorhanden
-            if (noComponentsPlaceholder) {
-                noComponentsPlaceholder.remove();
-                noComponentsPlaceholder = null; // Sicherstellen, dass er nur einmal entfernt wird
+            if (!customName) {
+                showComponentError("Bitte geben Sie einen 'Eigenen Namen' für die Komponenten-Instanz ein.");
+                componentCustomNameEl.focus();
+                return;
             }
 
-            const li = document.createElement('li');
-            li.className = 'added-component-item';
-            // Speichert die Daten im Element für die spätere JSON-Generierung
-            li.dataset.url = downloadUrl;
-            li.dataset.filename = fileName;
-            
-            li.innerHTML = `
-                <span class="truncate" title="${fileName}">${fileName}</span>
-                <button type="button" class="remove-component-btn" title="Entfernen">X</button>
-            `;
-            
-            addedComponentListEl.appendChild(li);
+            // --- 2. Lade-Zustand aktivieren ---
+            addComponentBtn.disabled = true;
+            addBtnSpinner.classList.remove('hidden');
+            addBtnText.textContent = 'Validiere...';
 
-            // Setzt das Dropdown zurück
-            componentDropdownEl.selectedIndex = 0;
+            try {
+                // --- 3. Asynchrone Inhalts-Validierung ---
+                const componentUrl = selectedOption.value;
+                const componentFilename = selectedOption.textContent;
+
+                const selectedProfileUrls = Array.from(document.querySelectorAll('input[name="profile"]:checked'))
+                    .map(cb => cb.value); 
+
+                const [componentJson, ...profileJsons] = await Promise.all([
+                    getFileContent(componentUrl, componentContentCache),
+                    ...selectedProfileUrls.map(url => getFileContent(url, profileContentCache))
+                ]);
+
+                const profileControlIds = extractProfileControls(profileJsons);
+                const componentControlIds = extractComponentControls(componentJson);
+
+                if (profileControlIds.size === 0) {
+                    console.warn("Konnte keine Control-IDs aus den ausgewählten Profilen extrahieren. Füge Komponente ohne Validierung hinzu.");
+                } 
+                else if (componentControlIds.size === 0) {
+                     throw new Error(`Validierung fehlgeschlagen: Die Komponente "${componentFilename}" scheint keine 'implemented-requirements' zu definieren.`);
+                }
+                else {
+                    // Validierung: Finde alle Controls in der Komponente, die NICHT in den Profilen sind.
+                    const controlsNotInProfile = [...componentControlIds].filter(id => !profileControlIds.has(id));
+
+                    if (controlsNotInProfile.length > 0) {
+                        // Wenn die Liste nicht leer ist, fehlschlagen.
+                        throw new Error(`Validierung fehlgeschlagen: Die Komponente "${componentFilename}" implementiert ${controlsNotInProfile.length} Control(s), die nicht in den ausgewählten Profilen enthalten sind (z.B.: ${controlsNotInProfile[0]}).`);
+                    }
+                }
+                
+                // --- 4. Validierung erfolgreich: Komponente zur UI-Liste hinzufügen ---
+                
+                if (noComponentsPlaceholder) {
+                    noComponentsPlaceholder.remove();
+                    noComponentsPlaceholder = null; 
+                }
+
+                const li = document.createElement('li');
+                li.className = 'added-component-item';
+                li.dataset.url = componentUrl;
+                li.dataset.filename = componentFilename;
+                li.dataset.title = customName;
+                
+                li.innerHTML = `
+                    <span class="truncate" title="${customName} (${componentFilename})">
+                        <strong>${customName}</strong>
+                        <span class="text-gray-600 ml-2">(${componentFilename})</span>
+                    </span>
+                    <button type="button" class="remove-component-btn" title="Entfernen">X</button>
+                `;
+                
+                addedComponentListEl.appendChild(li);
+
+                selectedDropdownEl.selectedIndex = 0;
+                componentCustomNameEl.value = '';
+
+            } catch (error) {
+                // --- 5. Fehlerbehandlung ---
+                console.error("Validierungsfehler:", error);
+                showComponentError(error.message);
+            } finally {
+                // --- 6. Lade-Zustand beenden ---
+                addComponentBtn.disabled = false;
+                addBtnSpinner.classList.add('hidden');
+                addBtnText.textContent = 'Hinzufügen';
+            }
         }
 
         /**
          * Verarbeitet Klicks auf der Liste der hinzugefügten Komponenten (zum Entfernen).
-         * @param {Event} event
          */
         function handleAddedComponentListClick(event) {
+            clearComponentError();
             if (event.target.classList.contains('remove-component-btn')) {
                 event.target.closest('li').remove();
 
-                // Platzhalter wieder anzeigen, wenn die Liste leer ist
                 if (addedComponentListEl.children.length === 0 && !noComponentsPlaceholder) {
                     noComponentsPlaceholder = document.createElement('li');
                     noComponentsPlaceholder.id = 'no-components-placeholder';
@@ -386,9 +583,11 @@
 
         /**
          * Generiert das SSP JSON und löst den Download aus.
+         * (Unverändert)
          */
         function generateSSP() {
-            clearError();
+            clearError(); 
+            clearComponentError();
 
             // --- 1. Eingaben validieren ---
             const systemName = systemNameEl.value.trim();
@@ -409,7 +608,6 @@
                 return;
             }
 
-            // Validierung für Schema-Anforderung (minItems: 1)
             if (addedComponentItems.length === 0) {
                 showError('Bitte fügen Sie mindestens eine Komponente hinzu. (Laut OSCAL-Schema ist `system-implementation.components` ein Pflichtfeld mit min. 1 Eintrag.)');
                 return;
@@ -418,26 +616,27 @@
             // --- 2. Daten für SSP sammeln ---
             const timestamp = new Date().toISOString();
             const sspUuid = crypto.randomUUID();
-            const partyUuid = crypto.randomUUID(); // Hinzugefügt für Schema-Fix
+            const partyUuid = crypto.randomUUID(); 
 
             // Profile verarbeiten
             const selectedProfileHrefs = Array.from(selectedProfileCheckboxes).map(cb => cb.value);
             const mainProfileHref = selectedProfileHrefs[0];
-            // Fügt zusätzliche Profile als Links in die Metadaten ein
             const otherProfileLinks = selectedProfileHrefs.slice(1).map(href => ({
                 "href": href,
                 "rel": "profile"
             }));
 
-            // Komponenten verarbeiten (basierend auf der <ul> Liste)
+            // Komponenten verarbeiten
             const sspComponents = Array.from(addedComponentItems).map(item => {
                 const downloadUrl = item.dataset.url;
                 const fileName = item.dataset.filename;
+                const componentTitle = item.dataset.title; 
+
                 return {
                     "uuid": crypto.randomUUID(),
-                    "type": "service", // Setzt einen Standardtyp
-                    "title": fileName.replace('.json', ''),
-                    "description": `Komponentendefinition geladen von ${fileName}`,
+                    "type": "service", 
+                    "title": componentTitle,
+                    "description": `Instanz '${componentTitle}', basierend auf Komponentendefinition ${fileName}.`, 
                     "status": { "state": "operational" },
                     "links": [
                         { "href": downloadUrl, "rel": "component-definition" }
@@ -446,7 +645,6 @@
             });
             
             // --- 3. Minimales SSP-Objekt erstellen ---
-            // Basiert auf der Struktur des OSCAL SSP Schemas
             const ssp = {
                 "system-security-plan": {
                     "uuid": sspUuid,
@@ -454,10 +652,8 @@
                         "title": `System Security Plan (SSP) für ${systemName}`,
                         "last-modified": timestamp,
                         "version": sspVersion,
-                        "oscal-version": "1.1.3", // Gemäß dem von dir bereitgestellten Schema
+                        "oscal-version": "1.1.3",
                         
-                        // FIX: "links": [] ist ungültig (minItems: 1).
-                        // Füge "links" nur hinzu, wenn otherProfileLinks (Profil 2+) Einträge hat.
                         ...(otherProfileLinks.length > 0 && { "links": otherProfileLinks }),
 
                         "roles": [
@@ -465,7 +661,7 @@
                         ],
                         "parties": [
                             {
-                                "uuid": partyUuid, // FIX B1
+                                "uuid": partyUuid,
                                 "type": "organization",
                                 "name": "Platzhalter-Organisation"
                             }
@@ -473,7 +669,7 @@
                         "responsible-parties": [
                             {
                                 "role-id": "creator",
-                                "party-uuids": [ partyUuid ] // FIX B1
+                                "party-uuids": [ partyUuid ]
                             }
                         ]
                     },
@@ -490,7 +686,6 @@
                         "system-name": systemName,
                         "description": systemDescription || "Keine Beschreibung angegeben.",
                         "system-information": {
-                            // Erforderliches Feld
                             "information-types": [
                                 {
                                     "uuid": crypto.randomUUID(),
@@ -500,20 +695,18 @@
                             ]
                         },
                         "security-impact-level": {
-                            // Platzhalter für erforderliches Feld
                             "security-objective-confidentiality": "low",
                             "security-objective-integrity": "low",
                             "security-objective-availability": "low"
                         },
                         "status": {
-                            "state": "operational" // Erforderliches Feld
+                            "state": "operational"
                         },
                         "authorization-boundary": {
-                            "description": "Platzhalter für die Beschreibung der Autorisierungsgrenze." // Erforderliches Feld
+                            "description": "Platzhalter für die Beschreibung der Autorisierungsgrenze."
                         }
                     },
                     "system-implementation": {
-                        // 'users' und 'components' sind erforderlich
                         "users": [
                             {
                                 "uuid": crypto.randomUUID(),
@@ -524,14 +717,11 @@
                         "components": sspComponents // Unsere ausgewählten Komponenten
                     },
                     "control-implementation": {
-                        // 'description' und 'implemented-requirements' sind erforderlich
                         "description": `Kontrollimplementierung für ${systemName}. Automatisch generiert.`,
                         "implemented-requirements": [
-                            // Fügt einen Platzhalter hinzu, da minItems 1 ist
                             {
                                 "uuid": crypto.randomUUID(),
                                 "control-id": "ac-1", // Beispiel-Kontroll-ID
-                                // FIX B2: 'description' ist hier ungültig, 'remarks' ist korrekt.
                                 "remarks": "Platzhalter für die Implementierungsaussage. Dieses SSP muss manuell vervollständigt werden."
                             }
                         ]
@@ -546,14 +736,12 @@
             
             const a = document.createElement('a');
             a.href = url;
-            // Erstellt einen sauberen Dateinamen
             const safeFilename = systemName.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'ssp-generated';
             a.download = `${safeFilename}-ssp.json`;
             
             document.body.appendChild(a);
             a.click();
             
-            // Aufräumen
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }
