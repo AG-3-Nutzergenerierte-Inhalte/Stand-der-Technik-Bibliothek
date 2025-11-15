@@ -1,0 +1,1195 @@
+<!DOCTYPE html>
+<!-- (F) Styling: Dark Mode Klassen hinzugefügt -->
+<html lang="de" class="h-full bg-slate-900">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OSCAL SSP Editor</title>
+    <!-- Einbindung von Tailwind CSS -->
+    <!-- (FIX) Das 'forms'-Plugin wird jetzt direkt über die CDN-URL geladen -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    // (F) Styling: Das @tailwindcss/forms Plugin wird jetzt
+                    // über das <script> Tag oben geladen (via ?plugins=forms)
+                    // Das 'plugins'-Array mit 'require' wurde entfernt.
+                },
+            },
+        };
+    </script>
+    <style>
+        /* Sanfter Übergang für das Ein- und Ausklappen */
+        .collapsible-content {
+            transition: max-height 0.3s ease-out, opacity 0.3s ease-in-out;
+            overflow: hidden;
+            max-height: 0;
+            opacity: 0;
+        }
+        .collapsible-content.open {
+            max-height: 20000px; /* Ausreichend großer Wert */
+            opacity: 1;
+        }
+        .chevron-icon {
+            transition: transform 0.3s ease;
+        }
+        .chevron-icon.open {
+            transform: rotate(90deg);
+        }
+        /* (F) Styling: Hover-Effekt für Dark Mode */
+        .maturity-radio-label:hover {
+            background-color: #334155; /* slate-700 */
+        }
+    </style>
+</head>
+<!-- (F) Styling: Dark Mode Body-Klassen -->
+<body class="h-full p-4 md:p-8 font-sans text-slate-200">
+    <!-- (F) Styling: Dark Mode Haupt-Container -->
+    <div class="max-w-6xl mx-auto bg-slate-800 p-6 md:p-8 rounded-2xl shadow-lg">
+
+        <!-- (F) Styling: Dark Mode Header -->
+        <header class="mb-6 pb-6 border-b border-slate-700">
+            <h1 class="text-3xl font-bold text-white">OSCAL SSP Editor</h1>
+            <p class="mt-2 text-slate-300">Laden Sie eine OSCAL SSP JSON-Datei. Zugehörige Komponenten und der verlinkte Katalog werden automatisch nachgeladen.</p>
+        </header>
+
+        <!-- Steuerelemente: Datei-Upload und Speichern -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div>
+                <!-- (F) Styling: Dark Mode Label -->
+                <label for="file-uploader" class="block text-sm font-medium text-slate-300 mb-2">SSP JSON-Datei laden</label>
+                <!-- (F) Styling: Dark Mode Datei-Uploader -->
+                <input id="file-uploader" type="file" accept=".json" class="block w-full text-sm text-slate-400
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-lg file:border-0
+                    file:text-sm file:font-semibold
+                    file:bg-blue-800 file:text-blue-200
+                    hover:file:bg-blue-700 cursor-pointer">
+            </div>
+            
+            <div class="flex md:justify-end items-end">
+                <!-- (F) Styling: Dark Mode Disabled-Button -->
+                <button id="save-button" class="w-full md:w-auto bg-blue-600 text-white font-medium py-2 px-6 rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-150 disabled:bg-slate-600" disabled>
+                    JSON speichern
+                </button>
+            </div>
+        </div>
+
+        <!-- SSP Editor-Bereich, initial ausgeblendet -->
+        <div id="ssp-editor" class="hidden space-y-4">
+            <!-- ... SSP-Inhalt ... -->
+        </div>
+
+        <!-- Lade-Indikator -->
+        <div id="loading-indicator" class="hidden text-center py-8">
+            <!-- (F) Styling: Dark Mode Lade-Text -->
+            <p id="loading-text" class="text-slate-400 animate-pulse">Lade Datei...</p>
+        </div>
+
+    </div>
+
+    <script>
+        // Globale Variable, um das geladene und geparste SSP-JSON-Objekt zu speichern.
+        let sspData = null;
+        let sspFileName = 'edited-ssp.json';
+
+        // Globale Variable zum Speichern der *automatisch heruntergeladenen* Komponenten-Definitionen
+        // Schlüssel: href (URL), Wert: geparstes JSON-Objekt der Definition (oder ein Fehlerobjekt)
+        let componentDefinitions = {};
+        
+        // Globale Variablen für den Katalog
+        let catalogData = null; // Speichert das geladene Katalog-Objekt
+        let catalogControlMap = new Map(); // Flache Map für schnellen Control-Zugriff
+
+        const fileUploader = document.getElementById('file-uploader');
+        const saveButton = document.getElementById('save-button');
+        const editorDiv = document.getElementById('ssp-editor');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const loadingText = document.getElementById('loading-text');
+
+        // Event Listener
+        fileUploader.addEventListener('change', handleFileLoad);
+        saveButton.addEventListener('click', handleFileSave);
+
+        /**
+         * Helferfunktion zur Generierung einer UUID (v4)
+         */
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        /**
+         * Verarbeitet das Laden der SSP-Datei.
+         */
+        async function handleFileLoad(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            sspFileName = file.name.replace('.json', '-edited.json') || 'edited-ssp.json';
+            
+            loadingText.textContent = 'Lade SSP...';
+            loadingIndicator.classList.remove('hidden');
+            editorDiv.classList.add('hidden');
+            editorDiv.innerHTML = '';
+            
+            // Setze alle globalen Daten zurück
+            sspData = null;
+            componentDefinitions = {};
+            catalogData = null;
+            catalogControlMap.clear();
+            saveButton.disabled = true;
+
+            const reader = new FileReader();
+            reader.onload = async (e) => { // Async für Await
+                try {
+                    sspData = JSON.parse(e.target.result);
+                    
+                    if (sspData && sspData['system-security-plan']) {
+                        editorDiv.classList.add('hidden'); // Stelle sicher, dass es versteckt ist
+                        
+                        // Starte den automatischen Download der Komponenten-Definitionen
+                        await fetchAllComponentDefinitions(sspData['system-security-plan']);
+                        
+                        // Starte den automatischen Download des Katalogs
+                        await fetchCatalog(sspData['system-security-plan']);
+
+                        // Verarbeite den Katalog, falls er geladen wurde
+                        if (catalogData && !catalogData.error) {
+                            // (C) Diese Funktion scheint bereits korrekt rekursiv zu sein (D)
+                            processCatalogData(catalogData); // Erstellt die catalogControlMap
+                        }
+
+                        // *Jetzt* rendere das SSP mit allen geladenen Daten
+                        renderSSP(sspData['system-security-plan']);
+                        
+                        editorDiv.classList.remove('hidden');
+                        saveButton.disabled = false;
+                        
+                    } else {
+                        throw new Error("Dies ist keine gültige OSCAL SSP-Datei (fehlender 'system-security-plan'-Stammknoten).");
+                    }
+                } catch (error) {
+                    handleReadError(error);
+                } finally {
+                    loadingIndicator.classList.add('hidden');
+                }
+            };
+            reader.onerror = () => handleReadError(new Error("Datei konnte nicht gelesen werden."));
+            reader.readAsText(file);
+        }
+
+        /**
+         * Versucht, alle verlinkten Komponenten-Definitionen aus dem SSP automatisch herunterzuladen.
+         */
+        async function fetchAllComponentDefinitions(ssp) {
+            componentDefinitions = {}; // Setze Definitionen zurück
+            const components = ssp['system-implementation']?.components || [];
+            const definitionLinks = new Set(); // Benutze ein Set, um doppelte Ladevorgänge zu vermeiden
+
+            components.forEach(comp => {
+                const defLink = comp.links?.find(link => link.rel === 'component-definition');
+                if (defLink && defLink.href) {
+                    definitionLinks.add(defLink.href);
+                }
+            });
+
+            const linksToFetch = Array.from(definitionLinks);
+            if (linksToFetch.length === 0) {
+                console.warn("SSP hat keine verlinkten Komponenten-Definitionen.");
+                return; // Nichts zu laden
+            }
+
+            loadingText.textContent = `Lade ${linksToFetch.length} Komponenten-Definition(en)...`;
+            loadingIndicator.classList.remove('hidden');
+
+            // Führe alle Fetch-Anfragen parallel aus
+            const fetchPromises = linksToFetch.map(href => 
+                fetch(href)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`Netzwerk-Antwort nicht OK (Status: ${response.status}) für ${href}`);
+                        }
+                        return response.json();
+                    })
+                    .then(json => ({ href, status: 'fulfilled', value: json }))
+                    .catch(error => ({ href, status: 'rejected', reason: error.message }))
+            );
+            
+            const results = await Promise.all(fetchPromises); 
+
+            results.forEach(result => {
+                if (result.status === 'fulfilled') {
+                    const { href, value } = result;
+                    if (value && value['component-definition']) {
+                        componentDefinitions[href] = value;
+                        console.log(`Definition für ${href} erfolgreich geladen.`);
+                    } else {
+                        console.warn(`Datei von ${href} geladen, aber es ist keine gültige Komponenten-Definition.`);
+                        componentDefinitions[href] = { error: 'Ungültiges Format' };
+                    }
+                } else if (result.status === 'rejected') {
+                    console.error(`Fehler beim Laden von ${result.href}: ${result.reason}`);
+                    componentDefinitions[result.href] = { error: result.reason };
+                }
+            });
+            
+            loadingIndicator.classList.add('hidden'); 
+        }
+        
+        /**
+         * Versucht, den verlinkten Katalog aus 'import-profile' zu laden.
+         */
+        async function fetchCatalog(ssp) {
+            catalogData = null; // Zurücksetzen
+            const importProfile = ssp['import-profile'];
+            const profileHref = importProfile?.href; 
+
+            if (!profileHref) {
+                console.warn("SSP hat kein 'import-profile' mit 'href' gefunden. Katalog kann nicht geladen werden.");
+                return;
+            }
+
+            loadingText.textContent = 'Lade Profil (für Katalog-Link)...';
+            loadingIndicator.classList.remove('hidden');
+
+            try {
+                // 1. Lade das PROFIL
+                const response = await fetch(profileHref);
+                if (!response.ok) {
+                    throw new Error(`Netzwerk-Antwort nicht OK (Status: ${response.status}) für Profil ${profileHref}`);
+                }
+                const profileJson = await response.json();
+                
+                // 2. Extrahiere die KATALOG-URL aus dem Profil
+                const catalogHref = profileJson?.profile?.imports?.[0]?.href;
+
+                if (catalogHref) {
+                    console.log(`Profil geladen. Lade jetzt Katalog von: ${catalogHref}`);
+                    loadingText.textContent = 'Lade Katalog-Definition...';
+
+                    // 3. Lade den KATALOG
+                    const catalogResponse = await fetch(catalogHref);
+                    if (!catalogResponse.ok) {
+                        throw new Error(`Netzwerk-Antwort nicht OK (Status: ${catalogResponse.status}) für Katalog ${catalogHref}`);
+                    }
+                    const catalogJson = await catalogResponse.json();
+
+                    if (catalogJson.catalog) {
+                        catalogData = catalogJson.catalog; // Speichere nur den 'catalog'-Teil
+                        console.log(`Katalog von ${catalogHref} erfolgreich geladen.`);
+                    } else {
+                        throw new Error("Geladene Katalog-Datei ist kein gültiger OSCAL-Katalog (fehlender 'catalog'-Stammknoten).");
+                    }
+                } else {
+                    throw new Error("Geladenes Profil ist ungültig oder importiert keinen Katalog (fehlt 'profile.imports[0].href').");
+                }
+            } catch (error) {
+                console.error(`Fehler beim Laden des Katalogs: ${error.message}`);
+                catalogData = { error: error.message }; // Speichere Fehler, um ihn anzuzeigen
+            } finally {
+                loadingIndicator.classList.add('hidden');
+            }
+        }
+
+        /**
+         * (C+D) Verarbeitet die geladenen Katalogdaten und erstellt eine flache Map.
+         * (FIXED) Diese Funktion ist jetzt korrekt rekursiv für alle Verschachtelungen.
+         */
+        function processCatalogData(catalog) {
+            catalogControlMap.clear();
+            
+            /**
+             * Untersucht eine Liste von Items (Gruppen oder Controls).
+             */
+            function findControlsRecursively(items) {
+                if (!items || !Array.isArray(items)) return;
+
+                items.forEach(item => {
+                    
+                    // Definiere, was ein Control ausmacht (hat 'parts' oder 'class')
+                    const isControl = item.parts || item.class;
+                    // Definiere, was ein Container ist (hat 'groups' oder 'controls')
+                    const isContainer = item.groups || item.controls;
+
+                    if (isControl) {
+                        // FALL 1: Das Item ist ein CONTROL (z.B. KONF.1.1 oder KONF.1.1.1)
+                        // Füge es zur Map hinzu.
+                        if (item.id) {
+                            catalogControlMap.set(item.id, item);
+                        }
+                        
+                        // Wenn dieses Control selbst Controls enthält (z.B. KONF.1.1),
+                        // rufe die Funktion rekursiv für die Kinder auf.
+                        if (item.controls) {
+                            findControlsRecursively(item.controls);
+                        }
+                    } else if (isContainer) {
+                        // FALL 2: Das Item ist eine REINE GRUPPE (z.B. KONF oder KONF.1)
+                        // Es ist kein Control (hat keine 'parts' oder 'class'),
+                        // aber es enthält Kinder.
+                        
+                        // Durchsuche die Controls...
+                        if (item.controls) {
+                            findControlsRecursively(item.controls);
+                        }
+                        // ...und die Untergruppen.
+                        if (item.groups) {
+                            findControlsRecursively(item.groups);
+                        }
+                    }
+                    // FALL 3: Weder Control noch Container -> wird ignoriert.
+                });
+            }
+
+            // Starte die Rekursion mit den Top-Level-Gruppen
+            findControlsRecursively(catalog.groups);
+            
+            // Starte die Rekursion mit den Top-Level-Controls (falls vorhanden)
+            findControlsRecursively(catalog.controls);
+
+            console.log(`Katalog verarbeitet. ${catalogControlMap.size} Controls in die Map geladen.`);
+        }
+        
+        function handleReadError(error) {
+            console.error("Fehler beim Lesen der Datei:", error);
+            // (F) Styling: Dark Mode Error
+            editorDiv.innerHTML = `<p class="text-red-400">Fehler beim Lesen der Datei: ${error.message}</p>`;
+            editorDiv.classList.remove('hidden');
+            loadingIndicator.classList.add('hidden');
+            saveButton.disabled = true;
+        }
+
+
+        /**
+         * Sammelt die Daten aus dem Formular und löst den Download der JSON-Datei aus.
+         */
+        function handleFileSave() {
+            if (!sspData) return;
+
+            try {
+                const ssp = sspData['system-security-plan'];
+                
+                // 1. Metadaten aktualisieren
+                ssp.metadata.title = document.getElementById('metadata-title').value;
+                
+                // 2. System-Charakteristika aktualisieren
+                ssp['system-characteristics']['system-name'] = document.getElementById('system-name').value;
+                ssp['system-characteristics'].description = document.getElementById('system-description').value;
+
+                // 3. Control-Implementierungen aktualisieren
+                if (!ssp['control-implementation']) {
+                    ssp['control-implementation'] = { description: "Kontrollimplementierung", "implemented-requirements": [] };
+                }
+                if (!Array.isArray(ssp['control-implementation']['implemented-requirements'])) {
+                    ssp['control-implementation']['implemented-requirements'] = [];
+                }
+                const requirements = ssp['control-implementation']['implemented-requirements'];
+
+                // Finde alle Eingabefelder im DOM
+                const controlEntries = document.querySelectorAll('.control-entry');
+
+                controlEntries.forEach(entry => {
+                    const controlId = entry.dataset.controlId;
+                    const compUuid = entry.dataset.compUuid;
+                    const uniqueDomId = `${controlId.replace(/[^a-zA-Z0-9]/g, '-')}-${compUuid}`;
+
+                    // (MODIFIED) Selektoren verwenden jetzt die eindeutige ID
+                    const stateEl = entry.querySelector(`#state-${uniqueDomId}`);
+                    const descriptionEl = entry.querySelector(`#desc-${uniqueDomId}`);
+                    const nameEl = entry.querySelector(`#name-${uniqueDomId}`); // NEU
+                    const dateEl = entry.querySelector(`#date-${uniqueDomId}`); // NEU
+
+                    if (!stateEl || !descriptionEl || !nameEl || !dateEl) return;
+
+                    const state = stateEl.value;
+                    const description = descriptionEl.value;
+                    const name = nameEl.value; // NEU
+                    const date = dateEl.value; // NEU
+                    
+                    // (MODIFIED) Prüfen, ob *irgendein* Feld Wert hat
+                    if (state || description || name || date) {
+                        // Finde oder erstelle das 'implemented-requirement' für dieses Control
+                        let req = requirements.find(r => r['control-id'] === controlId);
+                        if (!req) {
+                            req = {
+                                "uuid": generateUUID(),
+                                "control-id": controlId,
+                                "by-components": []
+                            };
+                            requirements.push(req);
+                        }
+
+                        if (!Array.isArray(req['by-components'])) {
+                            req['by-components'] = [];
+                        }
+
+                        // Finde oder erstelle den 'by-component'-Eintrag
+                        let byCompEntry = req['by-components'].find(bc => bc['component-uuid'] === compUuid);
+                        
+                        if (!byCompEntry) {
+                            byCompEntry = {
+                                "uuid": generateUUID(),
+                                "component-uuid": compUuid,
+                                "description": description,
+                                "implementation-status": { "state": state },
+                                "props": [] // (NEU) Starte mit props
+                            };
+                            req['by-components'].push(byCompEntry);
+                        } else {
+                            // Aktualisiere bestehenden Eintrag
+                            byCompEntry.description = description;
+                            if (!byCompEntry['implementation-status']) {
+                                byCompEntry['implementation-status'] = {};
+                            }
+                            byCompEntry['implementation-status'].state = state;
+                            if (!byCompEntry.props) { // (NEU) Sicherstellen, dass props existiert
+                                byCompEntry.props = [];
+                            }
+                        }
+
+                        // (NEU) Props-Logik zum Setzen oder Entfernen
+                        const setProp = (propName, propValue) => {
+                            let prop = byCompEntry.props.find(p => p.name === propName);
+                            if (propValue) {
+                                // Wert vorhanden: Erstellen oder Aktualisieren
+                                if (prop) {
+                                    prop.value = propValue;
+                                } else {
+                                    byCompEntry.props.push({ "name": propName, "value": propValue });
+                                }
+                            } else {
+                                // Kein Wert: Prop entfernen, falls sie existiert
+                                byCompEntry.props = byCompEntry.props.filter(p => p.name !== propName);
+                            }
+                        };
+
+                        setProp('implementing-user', name);
+                        setProp('implementation-date', date);
+                        
+                        // (NEU) Aufräumen: Leeres props-Array entfernen
+                        if (byCompEntry.props.length === 0) {
+                            delete byCompEntry.props;
+                        }
+
+                    } else {
+                        // (MODIFIED) Logik zum Entfernen von leeren Einträgen
+                        // (wird nur ausgeführt, wenn state, description, name UND date leer sind)
+                        let req = requirements.find(r => r['control-id'] === controlId);
+                        if (req && req['by-components']) {
+                            req['by-components'] = req['by-components'].filter(bc => bc['component-uuid'] !== compUuid);
+                            if (req['by-components'].length === 0) {
+                                ssp['control-implementation']['implemented-requirements'] = requirements.filter(r => r.uuid !== req.uuid);
+                            }
+                        }
+                    }
+                });
+
+                // Speichern als JSON
+                const dataStr = JSON.stringify(sspData, null, 2); // 'null, 2' für Pretty-Printing
+                const dataBlob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(dataBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = sspFileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+            } catch (error) {
+                console.error("Fehler beim Speichern der Daten:", error);
+            }
+        }
+
+        /**
+         * Rendert die gesamte SSP-Editor-Struktur.
+         */
+        function renderSSP(ssp) {
+            const components = ssp['system-implementation']?.components || [];
+            
+            editorDiv.innerHTML = `
+                ${createCollapsibleSection(
+                    'metadata', 
+                    'Metadaten', 
+                    renderMetadata(ssp.metadata)
+                )}
+                ${createCollapsibleSection(
+                    'system-characteristics', 
+                    'System-Charakteristika', 
+                    renderSystemCharacteristics(ssp['system-characteristics'])
+                )}
+                ${createCollapsibleSection(
+                    'profiles', 
+                    'Profile', 
+                    renderProfiles(ssp.metadata.links || [], ssp['import-profile'])
+                )}
+                ${createCollapsibleSection(
+                    'implementation', 
+                    'Komponenten-Implementierung', 
+                    renderImplementation(ssp), // Braucht das ganze SSP-Objekt
+                    true // Standardmäßig geöffnet
+                )}
+            `;
+            
+            // Event Listeners für alle einklappbaren Abschnitte hinzufügen
+            attachCollapsibleListeners();
+            // Event Listeners für Statement-Buttons hinzufügen
+            attachEditorListeners();
+            // (E) NEU: Event Listeners für Filter hinzufügen
+            attachFilterListeners();
+        }
+
+        /**
+         * Helferfunktion zum Erstellen eines einklappbaren Abschnitts.
+         * (F) Styling: Dark Mode
+         */
+        function createCollapsibleSection(id, title, contentHtml, isOpen = false) {
+            const openClass = isOpen ? 'open' : '';
+            return `
+                <div class="border border-slate-700 rounded-lg overflow-hidden">
+                    <button class="collapsible-header w-full flex justify-between items-center p-4 bg-slate-700 hover:bg-slate-600 focus:outline-none">
+                        <h2 class="text-xl font-semibold text-white">${title}</h2>
+                        <svg class="chevron-icon ${openClass} w-5 h-5 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                        </svg>
+                    </button>
+                    <div id="${id}-content" class="collapsible-content ${openClass} p-4 border-t border-slate-700 bg-slate-800">
+                        ${contentHtml}
+                    </div>
+                </div>
+            `;
+        }
+
+        /**
+         * Fügt die Klick-Listener zu allen collapsible-header hinzu.
+         */
+        function attachCollapsibleListeners() {
+            document.querySelectorAll('.collapsible-header').forEach(header => {
+                header.addEventListener('click', () => {
+                    const content = header.nextElementSibling;
+                    const icon = header.querySelector('.chevron-icon');
+                    content.classList.toggle('open');
+                    icon.classList.toggle('open');
+                });
+            });
+        }
+        
+        /**
+         * Fügt Klick-Listener zu allen Statement-Radio-Buttons hinzu.
+         */
+        function attachEditorListeners() {
+            document.querySelectorAll('.maturity-radio').forEach(radio => {
+                radio.addEventListener('change', () => {
+                    const targetTextareaId = radio.dataset.targetTextarea;
+                    const textarea = document.getElementById(targetTextareaId);
+                    // Hole die Beschreibung. 'undefined' oder 'null' wird zu ''
+                    const description = radio.dataset.description || ''; 
+                    
+                    if (textarea && radio.dataset.description !== undefined) { // Nur aktualisieren, wenn 'data-description' existiert
+                        if (description !== "") {
+                            // Ein Statement wurde ausgewählt, Text aktualisieren
+                            textarea.value = description;
+                            textarea.focus();
+                        } else {
+                            // "Manuell" wurde ausgewählt. Textfeld NICHT leeren, nur fokussieren.
+                            textarea.focus();
+                        }
+                    }
+                });
+            });
+        }
+
+        /**
+         * (E) NEU: Fügt Klick-Listener zu allen Control-Klassen-Filtern hinzu.
+         */
+        function attachFilterListeners() {
+            document.querySelectorAll('.control-class-filter').forEach(select => {
+                select.addEventListener('change', (event) => {
+                    const selectedClass = event.target.value;
+                    const compUuid = event.target.dataset.compUuid;
+                    
+                    // Finde den richtigen Control-Container
+                    const container = document.querySelector(`.control-list-container[data-comp-uuid="${compUuid}"]`);
+                    if (!container) return;
+
+                    const controls = container.querySelectorAll('.control-entry');
+                    
+                    controls.forEach(control => {
+                        const controlClass = control.dataset.controlClass; // 'normal-SdT', 'erhöht', 'unknown'
+                        
+                        if (selectedClass === 'all') {
+                            control.style.display = 'block';
+                        } else if (selectedClass === controlClass) {
+                            control.style.display = 'block';
+                        } else {
+                            control.style.display = 'none';
+                        }
+                    });
+                });
+            });
+        }
+
+        // --- Render-Funktionen für die einzelnen Abschnitte ---
+
+        /**
+         * Rendert Metadaten
+         * (F) Styling: Dark Mode
+         */
+        function renderMetadata(metadata) {
+            return `
+                <div class="space-y-3">
+                    <div>
+                        <label for="metadata-title" class="block text-sm font-medium text-slate-300">Titel</label>
+                        <input type="text" id="metadata-title" class="mt-1 block w-full rounded-md border-slate-600 bg-slate-700 text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" value="${(metadata.title || '').replace(/"/g, '&quot;')}">
+                    </div>
+                    <div>
+                        <span class="block text-sm font-medium text-slate-300">Letzte Änderung</span>
+                        <p class="text-sm text-slate-300">${metadata['last-modified'] || 'N/A'}</p>
+                    </div>
+                    <div>
+                        <span class="block text-sm font-medium text-slate-300">Version</span>
+                        <p class="text-sm text-slate-300">${metadata.version || 'N/A'}</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        /**
+         * Rendert System-Charakteristika
+         * (F) Styling: Dark Mode
+         */
+        function renderSystemCharacteristics(characteristics) {
+            return `
+                <div class="space-y-3">
+                    <div>
+                        <label for="system-name" class="block text-sm font-medium text-slate-300">System-Name</label>
+                        <input type="text" id="system-name" class="mt-1 block w-full rounded-md border-slate-600 bg-slate-700 text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" value="${(characteristics['system-name'] || '').replace(/"/g, '&quot;')}">
+                    </div>
+                    <div>
+                        <label for="system-description" class="block text-sm font-medium text-slate-300">Beschreibung</label>
+                        <textarea id="system-description" rows="4" class="mt-1 block w-full rounded-md border-slate-600 bg-slate-700 text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">${characteristics.description || ''}</textarea>
+                    </div>
+                     <div>
+                        <span class="block text-sm font-medium text-slate-300">Status</span>
+                        <p class="text-sm text-slate-300 capitalize">${characteristics.status?.state || 'N/A'}</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        /**
+         * Rendert Profile
+         * (F) Styling: Dark Mode
+         */
+        function renderProfiles(links, importProfile) {
+            let html = '<div class="space-y-2">';
+            
+            if (importProfile && importProfile.href) {
+                 html += `
+                    <div>
+                        <h4 class="font-medium text-slate-100">Importiertes Haupt-Profil (Katalog-Quelle):</h4>
+                        <a href="${importProfile.href}" target="_blank" rel="noopener noreferrer" class="text-sm text-blue-400 hover:underline break-all">${importProfile.href}</a>
+                        ${(catalogData && catalogData.error) ? `<p class="text-sm text-red-400">Fehler beim Laden des Katalogs: ${catalogData.error}</p>` : ''}
+                        ${(catalogData && !catalogData.error) ? `<p class="text-sm text-green-400">Katalog erfolgreich geladen (${catalogControlMap.size} Controls).</p>` : ''}
+                    </div>
+                `;
+            }
+            const profileLinks = links.filter(link => link.rel === 'profile');
+            if (profileLinks.length > 0) {
+                 html += `<div class="pt-2"><h4 class="font-medium text-slate-100">Verlinkte Profile:</h4><ul class="list-disc list-inside space-y-1 mt-1">`;
+                profileLinks.forEach(link => {
+                    html += `<li><a href="${link.href}" target="_blank" rel="noopener noreferrer" class="text-sm text-blue-400 hover:underline break-all">${link.href}</a></li>`;
+                });
+                html += '</ul></div>';
+            }
+            if (html === '<div class="space-y-2">') {
+                html += '<p class="text-sm text-slate-400">Keine Profile gefunden.</p>';
+            }
+
+            html += '</div>';
+            return html;
+        }
+
+        /**
+         * Helferfunktion: Rendert die 'props' auf Komponentenebene
+         * (F) Styling: Dark Mode
+         */
+        function renderComponentProps(compDef) {
+            let compPropsHtml = '';
+            if (compDef && !compDef.error) {
+                const props = compDef['component-definition']?.components?.[0]?.props;
+                if (props && props.length > 0) {
+                    compPropsHtml += `<div class="space-y-3">`; // Container für Props
+                    props.forEach(prop => {
+                        // Normalisiere Zeilenumbrüche. Ersetze <BR> (aus neuem Beispiel) mit \n.
+                        const propValue = (prop.value || '').replace(/<BR>|<br\s*\/?>/gi, '\n');
+
+                        compPropsHtml += `
+                            <div class="text-sm p-3 border border-slate-700 rounded-md bg-slate-900">
+                                <span class="font-medium text-slate-100">${prop.name}:</span>
+                                <p class="text-slate-300 whitespace-pre-wrap mt-1">${propValue}</p>
+                            </div>`;
+                    });
+                    compPropsHtml += `</div>`;
+                } else {
+                    compPropsHtml = '<p class="text-sm text-slate-400">Keine Eigenschaften (Props) in der Definition gefunden.</p>';
+                }
+            } else if (compDef && compDef.error) {
+                compPropsHtml = `<p class="mt-2 text-sm text-red-400"><strong>Fehler:</strong> Eigenschaften (Props) konnten nicht geladen werden. (Grund: ${compDef.error})</p>`;
+            } else if (compDef) {
+                compPropsHtml = `<p class="mt-2 text-sm text-orange-400">Eigenschaften (Props) nicht geladen.</p>`;
+            } else {
+                compPropsHtml = '<p class="mt-2 text-sm text-slate-400">Keine Definitions-URL für diese Komponente gefunden.</p>';
+            }
+            return compPropsHtml;
+        }
+
+        /**
+         * Rendert 'system-security-plan.control-implementation.implemented-requirements'.
+         * Gruppiert nach Komponenten.
+         * (F) Styling: Dark Mode
+         * (E) Filter-UI hinzugefügt
+         */
+        function renderImplementation(ssp) {
+            const sspComponents = ssp['system-implementation']?.components || [];
+            const sspRequirements = ssp['control-implementation']?.['implemented-requirements'] || [];
+
+            if (!sspComponents || sspComponents.length === 0) {
+                 return '<p class="text-sm text-slate-400">Keine Komponenten im SSP definiert. Controls können nicht bearbeitet werden.</p>';
+            }
+
+            let html = '<div class="space-y-4">'; // Container für alle Komponenten-Akkordions
+
+            // Iteriere über jede SSP-Komponente und erstelle einen ausklappbaren Bereich
+            sspComponents.forEach((sspComp, index) => {
+                const compUuid = sspComp.uuid;
+                const defLink = sspComp.links?.find(link => link.rel === 'component-definition');
+                const compDef = defLink ? componentDefinitions[defLink.href] : null;
+                
+                let compPropsHtml = renderComponentProps(compDef);
+                const compDefTitle = compDef?.['component-definition']?.metadata?.title || 'Eigenschaften (Props)';
+
+                // --- ELEGANTE CONTROL-RENDER-LOGIK ---
+                
+                // (E) NEU: Container für Controls bekommt ID und Klasse für Filterung
+                let compControlsHtml = `<div class="space-y-4 control-list-container" data-comp-uuid="${compUuid}">`;
+                
+                // 1. SSP-Daten-Map erstellen (was ist bereits gespeichert?)
+                const sspControlMap = new Map();
+                sspRequirements.forEach(sspReq => {
+                    const byCompEntry = sspReq['by-components']?.find(bc => bc['component-uuid'] === compUuid);
+                    if (byCompEntry) {
+                        sspControlMap.set(sspReq['control-id'], byCompEntry);
+                    }
+                });
+
+                // 2. Definitions-Daten-Map erstellen (was SOLLTE da sein?)
+                const defControlMap = new Map();
+                let definitionLoaded = false;
+                if (compDef && !compDef.error) {
+                    definitionLoaded = true;
+                    const compDefComponent = compDef['component-definition']?.components?.[0];
+                    const controlImpls = compDefComponent?.['control-implementations'] || [];
+                    controlImpls.forEach(impl => {
+                        (impl['implemented-requirements'] || []).forEach(req => {
+                            if (req['control-id']) defControlMap.set(req['control-id'], req);
+                        });
+                    });
+                }
+
+                // 3. Autoritative Liste zum Iterieren bestimmen
+                const iterationKeys = definitionLoaded ? defControlMap.keys() : sspControlMap.keys();
+                const iterationList = Array.from(iterationKeys).sort((a, b) => a.localeCompare(b));
+
+                // 4. Fehler-/Info-Meldungen behandeln
+                if (iterationList.length === 0) {
+                    // Nirgends Controls gefunden
+                    if (definitionLoaded) {
+                        compControlsHtml += '<p class="text-sm text-slate-400">Keine Controls in der Definition für diese Komponente gefunden.</p>';
+                    } else if (compDef && compDef.error) {
+                        compControlsHtml += `<p class="text-sm text-red-400">Definition konnte nicht geladen werden (Fehler: ${compDef.error}) und keine gespeicherten Controls gefunden.</p>`;
+                    } else {
+                         compControlsHtml += '<p class="text-sm text-slate-400">Definition nicht geladen und keine gespeicherten Controls für diese Komponente gefunden.</p>';
+                    }
+                } else if (!definitionLoaded && iterationList.length > 0) {
+                    // Def fehlgeschlagen, aber wir haben SSP-Controls. Zeige eine Warnung.
+                    const errorMsg = (compDef && compDef.error) ? `Fehler: ${compDef.error}` : 'Definition nicht geladen.';
+                    compControlsHtml += `<p class="text-sm text-orange-400 p-3 bg-orange-900 bg-opacity-30 rounded-md border border-orange-700 mb-3">${errorMsg} Zeige nur bereits im SSP gespeicherte Controls.</p>`;
+                }
+
+                // 5. DIE EINE SCHLEIFE
+                iterationList.forEach(controlId => {
+                    const byCompEntry = sspControlMap.get(controlId);    // Hole aus SSP (kann undefined sein)
+                    const implementedReq = defControlMap.get(controlId); // Hole aus Def (kann undefined sein)
+                    
+                    compControlsHtml += renderControlEntry(controlId, sspComp, byCompEntry, implementedReq);
+                });
+
+                compControlsHtml += '</div>'; // Ende des Containers für Controls
+                
+                
+                // (E) NEU: Filter-HTML-Block
+                const filterId = `filter-${sspComp.uuid}`;
+                const filterHtml = `
+                    <div class="flex flex-col md:flex-row justify-between md:items-center mb-4 gap-4">
+                        <h4 class="text-lg font-semibold text-white">Controls</h4>
+                        <div class="flex items-center space-x-2 md:space-x-4">
+                            <label for="${filterId}" class="text-sm font-medium text-slate-100 flex-shrink-0">Klasse filtern:</label>
+                            <select id="${filterId}" 
+                                    data-comp-uuid="${sspComp.uuid}" 
+                                    class="control-class-filter block w-full md:w-auto rounded-md border-slate-600 bg-slate-700 text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                                <option value="all">Alle anzeigen</option>
+                                <option value="normal-SdT">normal-SdT</option>
+                                <option value="erhöht">erhöht</option>
+                                <option value="unknown">Ohne Klasse</option>
+                            </select>
+                        </div>
+                    </div>
+                `;
+
+                // Erstelle den ausklappbaren Header für die Komponente
+                const isOpen = index === 0;
+                const openClass = isOpen ? 'open' : '';
+                
+                html += `
+                    <div class="border border-slate-700 rounded-lg overflow-hidden bg-slate-800 shadow-sm">
+                        <button class="collapsible-header w-full flex justify-between items-center p-4 hover:bg-slate-700 focus:outline-none">
+                            <h3 class="text-lg font-bold text-white">${sspComp.title}</h3>
+                            <svg class="chevron-icon ${openClass} w-5 h-5 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                            </svg>
+                        </button>
+                        <div class="collapsible-content ${openClass} p-4 border-t border-slate-700 bg-slate-800">
+                            
+                            <!-- Komponenten-Props -->
+                            <h4 class="text-lg font-semibold text-white mb-3">${compDefTitle}</h4>
+                            ${compPropsHtml}
+                            
+                            <hr class="my-6 border-slate-600">
+
+                            <!-- (E) Filter-UI statt alter H4 -->
+                            ${filterHtml}
+                            ${compControlsHtml}
+
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>'; // Ende des Haupt-Containers
+            return html;
+        }
+        
+        /**
+         * Helferfunktion: Rendert ein einzelnes Bearbeitungsfeld für (Control + Komponente)
+         * (F) Styling: Dark Mode
+         * (E) Titel um Klasse erweitert + data-Attribut für Filter
+         */
+        function renderControlEntry(controlId, sspComponent, byCompEntry, implementedReq) {
+            const compUuid = sspComponent.uuid;
+            // Eindeutige ID für DOM-Elemente
+            const uniqueDomId = `${controlId.replace(/[^a-zA-Z0-9]/g, '-')}-${compUuid}`;
+            
+            // SSP-Daten (gespeicherter Zustand)
+            const currentState = byCompEntry?.['implementation-status']?.state || '';
+            const currentDescription = byCompEntry?.description || '';
+            const textareaId = `desc-${uniqueDomId}`;
+
+            // (NEU) Lese Name und Datum aus den Props
+            const byCompProps = byCompEntry?.props || [];
+            const currentName = byCompProps.find(p => p.name === 'implementing-user')?.value || '';
+            const currentDate = byCompProps.find(p => p.name === 'implementation-date')?.value || '';
+            
+            // --- E.1 & E.2: Daten aus Katalog ---
+            const catalogControl = catalogControlMap.get(controlId);
+            const catalogTitle = catalogControl?.title || '';
+            
+            // (E) NEU: Klasse aus Katalog holen
+            const catalogClass = catalogControl?.class; // z.B. "normal-SdT"
+            const classDisplay = catalogClass ? ` <span class="text-sm font-normal text-slate-400">(${catalogClass})</span>` : '';
+            const classDataAttr = catalogClass || 'unknown';
+            
+            const catalogParts = catalogControl?.parts || [];
+            const statementPart = catalogParts.find(p => p.name === 'statement');
+            const guidancePart = catalogParts.find(p => p.name === 'guidance');
+            
+            // Ersetze OSCAL-Parameter mit einem Platzhalter
+            const proseText = (statementPart?.prose || '').replace(
+                /{{ insert: param, [^}]+ }}/g, 
+                '<span class="font-normal italic text-blue-400">[Parameter]</span>'
+            );
+            const guidanceText = guidancePart?.prose || '';
+
+            // --- E.3, E.4, E.5: Daten aus Component-Definition ---
+            const compDescription = implementedReq?.description || ''; // E.3 (NEU)
+            const controlProps = implementedReq?.props;                 // E.4
+            const statements = implementedReq?.statements;             // E.5
+
+
+            const defaultCompDescription = "This control is implemented as defined in the profile.";
+            const hasProps = controlProps && controlProps.length > 0;
+            const hasStatements = statements && statements.length > 0;
+            
+            let showCompDescription = false;
+            if (compDescription) { 
+                if (compDescription.trim().toLowerCase() !== defaultCompDescription.toLowerCase()) {
+                    showCompDescription = true;
+                } else if (hasProps || hasStatements) {
+                    showCompDescription = true;
+                }
+            }
+
+
+            // --- HTML-Blöcke bauen ---
+
+            // --- Block 1: Header (E.1) ---
+            // (E) NEU: data-control-class und classDisplay im Titel
+            html = `
+                <div class="control-entry p-4 border border-slate-600 rounded-lg bg-slate-700 shadow-sm" 
+                     data-control-id="${controlId}" 
+                     data-comp-uuid="${compUuid}" 
+                     data-control-class="${classDataAttr}">
+                    <!-- E.1: Control-ID und Katalog-Titel (E) Klasse hinzugefügt -->
+                    <h4 class="text-lg font-bold text-white">${controlId}${catalogTitle ? `: ${catalogTitle}` : ''}${classDisplay}</h4>
+            `;
+            
+            let hasAnyInfoAbove = false; // Wird für die Trennlinie vor dem Editor-Feld benötigt
+
+            // --- Block 2: Katalog-Sektion (E.2) ---
+            let catalogHtml = '';
+            catalogHtml = `
+                <div class="mt-4 pt-4 border-t border-slate-600 text-sm space-y-3">
+                    <h5 class="text-sm font-semibold text-slate-100">Katalog-Informationen</h5>
+                    ${proseText ? `<div class="p-3 rounded-md bg-slate-800 border border-slate-600">
+                                        <h6 class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Anforderung (aus Katalog)</h6>
+                                        <p class="text-slate-200 mt-1 font-medium">${proseText}</p>
+                                    </div>` : ''}
+                    ${guidanceText ? `<div class="p-3 rounded-md bg-slate-800 border border-slate-600 mt-2">
+                                        <h6 class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Umsetzungshinweis (aus Katalog)</h6>
+                                        <!-- (FIX) Styling an default (text-slate-300) angepasst, italic entfernt -->
+                                        <p class="text-slate-300 mt-1">${guidanceText}</p>
+                                    </div>` : ''}
+                    ${(!proseText && !guidanceText) ? `<div class="p-3 rounded-md bg-slate-800 border border-slate-600">
+                                                          <p class="text-slate-400 italic text-sm">Keine Katalog-Informationen für dieses Control gefunden.</p>
+                                                      </div>` : ''}
+                </div>
+            `;
+            hasAnyInfoAbove = true; 
+            html += catalogHtml;
+
+            // --- Block 3: Komponenten-Beschreibung (E.3) ---
+            let compDescriptionHtml = '';
+            if (showCompDescription) {
+                compDescriptionHtml = `
+                    <div class="mt-4 pt-4 border-t border-slate-600 text-sm space-y-3">
+                        <h5 class="text-sm font-semibold text-slate-100">Komponenten-Beschreibung</h5>
+                        <div class="p-3 rounded-md bg-slate-900 border border-blue-800 text-blue-200 text-sm max-w-none">
+                            <p>${compDescription}</p>
+                        </div>
+                    </div>
+                `;
+                hasAnyInfoAbove = true;
+            }
+            html += compDescriptionHtml;
+
+
+            // --- Block 4: Control-Props-Sektion (E.4) ---
+            let controlPropsHtml = '';
+            if (controlProps && controlProps.length > 0) {
+                controlPropsHtml = `
+                    <div class="mt-4 pt-4 border-t border-slate-600 text-sm space-y-3">
+                        <h5 class="text-sm font-semibold text-slate-100">Control-Eigenschaften (aus Komponente)</h5>
+                        <div class="p-3 bg-slate-800 rounded-md border border-slate-600">
+                            <dl class="text-sm text-gray-700 space-y-1">
+                `;
+                controlProps.forEach(prop => {
+                    controlPropsHtml += `<div class="flex justify-between items-start">
+                                            <dt class="font-medium text-slate-200 mr-4 flex-shrink-0">${prop.name}:</dt>
+                                            <dd class="text-slate-300 text-right break-words">${prop.value}</dd>
+                                         </div>`;
+                });
+                controlPropsHtml += `
+                            </dl>
+                        </div>
+                    </div>
+                `;
+                hasAnyInfoAbove = true;
+            }
+            html += controlPropsHtml;
+
+            
+            // --- Block 5: Maturity-Statements-Sektion (E.5) ---
+            let statementsSectionHtml = '';
+            if (statements && statements.length > 0) {
+                let statementsRadiosHtml = '';
+                let manualChecked = true; // Standard: Manuell ist ausgewählt
+                
+                statements.forEach((stmt, index) => {
+                    const statementProps = stmt.props || [];
+                    const statementTitle = (stmt.description || stmt['statement-id'] || `Statement ${index + 1}`).trim();
+
+                    // (NEU) Deutsche Überschriften für die Properties
+                    const propHeadlines = {
+                        'statement': 'Anforderung (Statement)',
+                        'guidance': 'Hinweis (Guidance)',
+                        'assessment-method': 'Prüfmethode (Assessment Method)'
+                        // Fügen Sie hier bei Bedarf weitere hinzu
+                    };
+
+                    // (NEU) Finde den 'statement'-Text für die Radio-Button-Funktionalität
+                    const statementText = (statementProps.find(p => p.name === 'statement')?.value || '').trim();
+
+                    // (NEU) Baue die HTML-Blöcke für JEDE Property
+                    let propBlocksHtml = '';
+                    statementProps.forEach(prop => {
+                        const propValue = (prop.value || '').trim();
+                        if (propValue) { // Nur rendern, wenn Inhalt vorhanden ist
+                            const headline = propHeadlines[prop.name] || prop.name; // Headline holen oder Fallback
+                            
+                            // Spezielles Styling für Klarheit
+                            let textStyle = "text-slate-300";
+                            if (prop.name === 'statement') {
+                                textStyle = "text-white font-medium"; // Das Haupt-Statement hervorheben
+                            } 
+                            // (FIX) Else-if für 'guidance' entfernt, 
+                            // damit es das default 'text-slate-300' Styling verwendet.
+
+                            propBlocksHtml += `
+                                <div class="mt-2 p-2 rounded-md bg-slate-800 border border-slate-600">
+                                    <h6 class="text-xs font-semibold text-slate-400 uppercase tracking-wide">${headline}</h6>
+                                    <p class="${textStyle} mt-1 text-sm">${propValue}</p>
+                                </div>
+                            `;
+                        }
+                    });
+                    
+                    let isChecked = false;
+                    // (NEU) Prüft gegen den extrahierten statementText
+                    if (currentDescription.trim() === statementText && statementText !== '') {
+                        isChecked = true;
+                        manualChecked = false; // Ein Statement passt, also ist Manuell nicht ausgewählt
+                    }
+                    
+                    statementsRadiosHtml += `
+                        <div class="flex items-start maturity-radio-label rounded-md p-2 -m-2 hover:bg-slate-800">
+                            <input id="radio-${uniqueDomId}-${index}" 
+                                   name="maturity-${uniqueDomId}" 
+                                   type="radio" 
+                                   class="maturity-radio h-4 w-4 mt-1 text-blue-600 border-gray-300 focus:ring-blue-500 bg-slate-700" 
+                                   data-target-textarea="${textareaId}" 
+                                   data-description="${statementText.replace(/"/g, '&quot;')}"
+                                   ${isChecked ? 'checked' : ''}>
+                            <label for="radio-${uniqueDomId}-${index}" class="ml-3 text-sm w-full cursor-pointer">
+                                <span class="font-medium text-slate-100">${statementTitle}</span>
+                                
+                                <!-- (NEU) Container für die Property-Blöcke -->
+                                <div class="mt-1 space-y-1">
+                                    ${propBlocksHtml}
+                                </div>
+                            </label>
+                        </div>
+                    `;
+                });
+
+                // Radio-Button für Manuell
+                const manualRadioHtml = `
+                    <div class="flex items-start maturity-radio-label rounded-md p-2 -m-2 hover:bg-slate-800">
+                        <input id="radio-manual-${uniqueDomId}" 
+                               name="maturity-${uniqueDomId}" 
+                               type="radio" 
+                               class="maturity-radio h-4 w-4 mt-1 text-blue-600 border-gray-300 focus:ring-blue-500 bg-slate-700" 
+                               data-target-textarea="${textareaId}" 
+                               data-description=""
+                               ${manualChecked ? 'checked' : ''}>
+                        <label for="radio-manual-${uniqueDomId}" class="ml-3 text-sm w-full cursor-pointer">
+                            <span class="font-medium text-slate-100">Manuelle Eingabe</span>
+                            <p class="text-slate-400 mt-0.5">Kommentar manuell eingeben oder bearbeiten.</p>
+                        </label>
+                    </div>
+                `;
+
+                statementsSectionHtml = `
+                <div class="mt-4 pt-4 border-t border-slate-600">
+                    <fieldset>
+                        <legend class="text-sm font-semibold text-slate-100 mb-2">Vordefinierte Statements (aus Komponente)</legend>
+                        <div class="space-y-3">
+                            ${manualRadioHtml} <!-- Manuell ZUERST -->
+                            ${statementsRadiosHtml} <!-- Dann die Statements -->
+                        </div>
+                    </fieldset>
+                 </div>
+                `;
+                hasAnyInfoAbove = true;
+            }
+            html += statementsSectionHtml;
+
+            // --- Block 6: Eingabefelder ---
+            // (MODIFIED) Layout auf 4 Spalten geändert und neue Felder eingefügt
+            html += `
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4 ${hasAnyInfoAbove ? 'pt-4 border-t border-slate-600' : ''}">
+                    
+                    <!-- Umsetzungsstand -->
+                    <div class="md:col-span-1">
+                        <label for="state-${uniqueDomId}" class="block text-sm font-medium text-slate-300 mb-1">Umsetzungsstand</label>
+                        <select 
+                            id="state-${uniqueDomId}" 
+                            class="mt-1 block w-full rounded-md border-slate-600 bg-slate-800 text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                        >
+                            <option value="" ${currentState === '' ? 'selected' : ''}>-- Unbearbeitet --</option>
+                            <option value="implemented" ${currentState === 'implemented' ? 'selected' : ''}>Umgesetzt</option>
+                            <option value="partial" ${currentState === 'partial' ? 'selected' : ''}>Teilweise umgesetzt</option>
+                            <option value="planned" ${currentState === 'planned' ? 'selected' : ''}>Geplant</option>
+                            <option value="alternative" ${currentState === 'alternative' ? 'selected' : ''}>Alternative Umsetzung</option>
+                            <option value="not-applicable" ${currentState === 'not-applicable' ? 'selected' : ''}>Nicht zutreffend</option>
+                        </select>
+                    </div>
+
+                    <!-- (NEU) Name -->
+                    <div class="md:col-span-2">
+                         <label for="name-${uniqueDomId}" class="block text-sm font-medium text-slate-300 mb-1">Name (Bearbeiter)</label>
+                         <input
+                            type="text"
+                            id="name-${uniqueDomId}"
+                            class="mt-1 block w-full rounded-md border-slate-600 bg-slate-800 text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                            value="${currentName.replace(/"/g, '&quot;')}"
+                         >
+                    </div>
+
+                    <!-- (NEU) Datum -->
+                    <div class="md:col-span-1">
+                         <label for="date-${uniqueDomId}" class="block text-sm font-medium text-slate-300 mb-1">Datum</label>
+                         <input
+                            type="date"
+                            id="date-${uniqueDomId}"
+                            class="mt-1 block w-full rounded-md border-slate-600 bg-slate-800 text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                            value="${currentDate}"
+                         >
+                    </div>
+                    
+                    <!-- Kommentar -->
+                    <div class="md:col-span-4">
+                        <label for="${textareaId}" class="block text-sm font-medium text-slate-300 mb-1">Kommentar (Description)</label>
+                        <textarea 
+                            id="${textareaId}"
+                            rows="4" 
+                            class="mt-1 block w-full rounded-md border-slate-600 bg-slate-800 text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                        >${currentDescription}</textarea>
+                    </div>
+                </div>
+            `;
+            
+            // --- Finale ---
+            html += `</div>`; // Close control-entry
+            return html;
+        }
+
+    </script>
+</body>
+</html>
